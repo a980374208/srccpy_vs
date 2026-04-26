@@ -7,6 +7,7 @@
 #include "sc_thread.h"
 #include "sc_intr.h"
 #include "adb_tunnel.h"
+#include "tick.h"
 
 #define SC_DEVICE_NAME_FIELD_LENGTH 64
 
@@ -42,11 +43,12 @@ struct sc_server_params
 {
     uint32_t scid;
     const char *req_serial;
-    /* enum sc_codec video_codec;
-     enum sc_codec audio_codec;
-     enum sc_video_source video_source;
-     enum sc_audio_source audio_source;
-     enum sc_camera_facing camera_facing;*/
+    enum sc_log_level log_level;
+    enum sc_codec video_codec;
+    enum sc_codec audio_codec;
+    enum sc_video_source video_source;
+    enum sc_audio_source audio_source;
+    enum sc_camera_facing camera_facing;
     const char *crop;
     const char *video_codec_options;
     const char *audio_codec_options;
@@ -56,6 +58,7 @@ struct sc_server_params
     const char *camera_size;
     const char *camera_ar;
     uint16_t camera_fps;
+    struct sc_port_range port_range;
     uint32_t tunnel_host;
     uint16_t tunnel_port;
     uint16_t max_size;
@@ -63,8 +66,9 @@ struct sc_server_params
     uint32_t audio_bit_rate;
     const char *max_fps; // float to be parsed by the server
     const char *angle;   // float to be parsed by the server
-                         // enum sc_orientation capture_orientation;
-    // enum sc_orientation_lock capture_orientation_lock;
+    sc_tick screen_off_timeout;
+    enum sc_orientation capture_orientation;
+    enum sc_orientation_lock capture_orientation_lock;
     bool control;
     uint32_t display_id;
     const char *new_display;
@@ -107,13 +111,22 @@ public:
     bool server_init(const struct sc_server_params *params, const struct sc_server_callbacks *cbs, void *cbs_userdata);
 
 	bool server_start();
+
+    static bool push_server(sc_intr& intr, const std::string& serial);
+
+    static std::string get_server_path();
+
+    sc_pid
+        execute_server(const struct sc_server_params& params);
+
+
 private:
 
     static int run_server(void*);
 
     struct sc_server_params m_params; 
-    std::unique_ptr<char[]> m_serial; 
-    std::unique_ptr<char[]> m_device_socket_name;
+    std::string m_serial; 
+    std::string m_device_socket_name;
 
     sc_thread m_thread;
     struct sc_server_info m_info; // initialized once connected

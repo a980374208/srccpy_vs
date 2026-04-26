@@ -1,6 +1,7 @@
 #pragma once
 #include "net.h"
-
+#include "options.h"
+#include "sc_intr.h"
 class sc_adb_tunnel {
 public:
     bool m_enabled;
@@ -10,6 +11,24 @@ public:
 
     sc_adb_tunnel();
 
+    bool adb_tunnel_open(sc_intr& intr,
+        const std::string& serial, const std::string& device_socket_name,
+        const sc_port_range &port_range, bool force_adb_forward);
+    bool
+        enable_tunnel_reverse_any_port(
+            sc_intr& intr, const std::string& serial,
+            const std::string& device_socket_name,
+            const sc_port_range &port_range);
+
+    static bool
+        enable_tunnel_forward_any_port(
+            sc_intr& intr, const std::string& serial,
+            const std::string& device_socket_name,
+            const sc_port_range &port_range);
+
+    static bool
+        listen_on_port(sc_intr& intr, const sc_socket& socket, uint16_t port);
+   
 };
 
 

@@ -25,4 +25,16 @@ public:
     bool set_socket(sc_socket socket);
 
 	void intr_interrupt();
+
+    bool
+        is_interrupted();
+
+    bool net_listen_intr( sc_socket server_socket, uint32_t addr,
+            uint16_t port, int backlog);
+
+    bool
+        net_connect_intr(sc_intr& intr, sc_socket socket, uint32_t addr,
+            uint16_t port);
+
+    
 };

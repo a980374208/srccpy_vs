@@ -20,7 +20,9 @@ set(CORE_SOURCES
     util/rand.cpp
     util/sc_intr.cpp
     util/tick.cpp
-    
+    util/sc_file.cpp
+    util/sc_log.cpp
+
     # 系统相关
     env.cpp
     util/sc_thread.cpp

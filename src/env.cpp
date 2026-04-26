@@ -6,7 +6,7 @@
 
 std::string sc_get_env(const std::string& varname)
 {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+   /* std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 
 #ifdef _WIN32
 	std::wstring w_varname = conv.from_bytes(varname);
@@ -22,5 +22,8 @@ std::string sc_get_env(const std::string& varname)
     }
 
 #endif
-    return conv.to_bytes(value);
+    return conv.to_bytes(value);*/
+    const char* value = std::getenv(varname.c_str());
+    if (!value) return "";
+    return std::string(value);
 }

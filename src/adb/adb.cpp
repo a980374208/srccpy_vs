@@ -4,6 +4,8 @@
 #include "process_intr.h"
 #include "assert.h"
 #include "adb_parser.h"
+#include "str_util.h"
+#include <sstream>
 
 #define SC_ADB_COMMAND(...) { sc_adb_get_executable(), __VA_ARGS__ }
 
@@ -111,12 +113,87 @@ bool sc_adb_list_devices(sc_intr& intr, unsigned flags, sc_vec_adb_devices& out_
 
 
 
-bool sc_adb_select_device(sc_intr& intr, const sc_adb_device_selector* selector, unsigned flags, sc_adb_device* out_device)
+bool sc_adb_select_device(sc_intr& intr, const sc_adb_device_selector& selector, unsigned flags, sc_adb_device& out_device)
 {
     sc_vec_adb_devices vec;
     bool ok = sc_adb_list_devices(intr, flags, vec);
+    if (!ok) {
+        //LOGE("Could not list ADB devices");
+        return false;
+    }
 
-    return false;
+    if (vec.size() == 0) {
+        //LOGE("Could not find any ADB device");
+        return false;
+    }
+    size_t sel_idx; // index of the single matching device if sel_count == 1
+    size_t sel_count =
+        sc_adb_devices_select(vec, vec.size(), selector, &sel_idx);
+
+    if (sel_count == 0) {
+        assert(selector.type != SC_ADB_DEVICE_SELECT_ALL);
+
+        switch (selector.type) {
+        case SC_ADB_DEVICE_SELECT_SERIAL:
+            assert(!selector.serial.empty());
+            //LOGE("Could not find ADB device %s:", selector.serial.c_str()  );
+            break;
+        case SC_ADB_DEVICE_SELECT_USB:
+            //LOGE("Could not find any ADB device over USB:");
+            break;
+        case SC_ADB_DEVICE_SELECT_TCPIP:
+            //LOGE("Could not find any ADB device over TCP/IP:");
+            break;
+        default:
+            assert(!"Unexpected selector type");
+            break;
+        }
+
+        //sc_adb_devices_log(SC_LOG_LEVEL_ERROR, vec.data, vec.size);
+        return false;
+    }
+    if (sel_count > 1) {
+        switch (selector.type) {
+        case SC_ADB_DEVICE_SELECT_ALL:
+            //LOGE("Multiple (%" SC_PRIsizet ") ADB devices:", sel_count);
+            break;
+        case SC_ADB_DEVICE_SELECT_SERIAL:
+            assert(!selector.serial.empty());
+            //LOGE("Multiple (%" SC_PRIsizet ") ADB devices with serial %s:",
+            //    sel_count, selector.serial.c_str());
+            break;
+        case SC_ADB_DEVICE_SELECT_USB:
+            //LOGE("Multiple (%" SC_PRIsizet ") ADB devices over USB:",
+            //    sel_count);
+            break;
+        case SC_ADB_DEVICE_SELECT_TCPIP:
+            //LOGE("Multiple (%" SC_PRIsizet ") ADB devices over TCP/IP:",
+            //    sel_count);
+            break;
+        default:
+            assert(!"Unexpected selector type");
+            break;
+        }
+        //sc_adb_devices_log(SC_LOG_LEVEL_ERROR, vec.data, vec.size);
+        //LOGE("Select a device via -s (--serial), -d (--select-usb) or -e "
+        //    "(--select-tcpip)");
+        return false;
+    }
+
+    assert(sel_count == 1); // sel_idx is valid only if sel_count == 1
+    struct sc_adb_device& device = vec[sel_idx];
+
+    ok = sc_adb_device_check_state(device, vec);
+    if (!ok) {
+        return false;
+    }
+
+    //LOGI("ADB device found:");
+    //sc_adb_devices_log(SC_LOG_LEVEL_INFO, vec.data, vec.size);
+
+    // Move devics into out_device (do not destroy device)
+    out_device = device;
+    return true;
 }
 
 bool process_check_success_intr(sc_intr& intr, sc_pid pid, const char* name, unsigned flags)
@@ -161,4 +238,214 @@ bool process_check_success_internal(sc_pid pid, const char* name, bool close, un
         return false;
     }
     return true;
+}
+
+size_t sc_adb_devices_select(const sc_vec_adb_devices& devices, size_t len, const sc_adb_device_selector& selector, size_t* idx_out)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < len; ++i) {
+        struct sc_adb_device device = devices[i];
+        device.selected = sc_adb_accept_device(device, selector);
+        if (device.selected) {
+            if (idx_out && !count) {
+                *idx_out = i;
+            }
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+bool sc_adb_accept_device(const sc_adb_device& device,
+    const sc_adb_device_selector& selector)
+{
+    switch (selector.type) {
+    case SC_ADB_DEVICE_SELECT_ALL:
+        return true;
+
+    case SC_ADB_DEVICE_SELECT_SERIAL:{
+        assert(!selector.serial.empty());
+
+        auto pos_device_colon = device.serial.find(':');
+        auto pos_selector_colon = selector.serial.find(':');
+
+        if (pos_device_colon != std::string::npos) {
+            // Device serial contains IP:port
+            if (pos_selector_colon == std::string::npos) {
+                // Requested serial has no ':', match only IP part
+                if (selector.serial.length() != pos_device_colon) {
+                    return false;
+                }
+                return device.serial.compare(0, pos_device_colon, selector.serial) == 0;
+            }
+        }
+        // Direct string comparison
+        return device.serial == selector.serial;
+    }
+    case SC_ADB_DEVICE_SELECT_USB:
+        return sc_adb_device_get_type(device.serial) == SC_ADB_DEVICE_TYPE_USB;
+
+    case SC_ADB_DEVICE_SELECT_TCPIP:
+        // Both emulators and TCP/IP devices are selected via -e
+        return sc_adb_device_get_type(device.serial) != SC_ADB_DEVICE_TYPE_USB;
+
+    default:
+        assert(!"Missing SC_ADB_DEVICE_SELECT_* handling");
+        break;
+    }
+
+    return false;
+}
+
+sc_adb_device_type sc_adb_device_get_type(const std::string& serial)
+{
+    // Starts with "emulator-"
+    constexpr std::string_view EMULATOR_PREFIX = "emulator-";
+    if (serial.size() >= EMULATOR_PREFIX.size() &&
+        serial.substr(0, EMULATOR_PREFIX.size()) == EMULATOR_PREFIX)
+    {
+        return SC_ADB_DEVICE_TYPE_USB;
+    }
+
+    // If the serial contains a ':', then it is a TCP/IP device
+    if (serial.find(':') != std::string_view::npos) {
+        return SC_ADB_DEVICE_TYPE_TCPIP;
+    }
+
+    return SC_ADB_DEVICE_TYPE_USB;
+}
+
+bool sc_adb_device_check_state(sc_adb_device& device, sc_vec_adb_devices& devices)
+{
+    const std::string& state = device.state;
+
+    if (state == "device") {
+        return true;
+    }
+
+    if (state == "unauthorized") {
+        //LOGE("Device is unauthorized:");
+        for (auto& d : devices) {
+            //LOGE("  %s [%s]", d.serial.c_str(), d.state.c_str());
+        }
+        //LOGE("A popup should open on the device to request authorization.");
+    }
+    else {
+        //LOGE("Device could not be connected (state=%s)", state.c_str());
+    }
+
+    return false;
+}
+
+bool sc_adb_push(sc_intr& intr, const std::string& serial, const std::string& local_path, const std::string& remote_path, unsigned flags)
+{
+    std::string local = local_path;
+    std::string remote = remote_path;
+
+#ifdef _WIN32
+    // Windows 需要对路径加引号
+    local = sc_str_quote(local.c_str());
+    if (local.empty()) {
+        return false;
+    }
+
+    remote = sc_str_quote(remote.c_str());
+    if (remote.empty()) {
+        return false;
+    }
+#endif
+
+    assert(!serial.empty());
+
+    // 构建 argv
+    std::vector<std::string> argv = SC_ADB_COMMAND("-s", serial, "push", local, remote);
+   
+    // 执行 adb 命令
+    sc_pid pid = sc_adb_execute(argv, flags);
+
+    // 检查执行结果
+    return process_check_success_intr(intr, pid, "adb push", flags);
+}
+
+bool sc_adb_reverse(sc_intr& intr, const std::string& serial, const std::string& device_socket_name, uint16_t local_port, unsigned flags)
+{
+    assert(!serial.empty() && !device_socket_name.empty());
+
+    // 构造 local 和 remote 字符串
+    std::string local = "tcp:" + local_port;
+    std::string remote = "localabstract:" + device_socket_name;
+
+    // 构造 adb 命令
+    std::vector<std::string> argv = SC_ADB_COMMAND(
+        "-s", serial,
+        "reverse",
+        remote.c_str(),
+        local.c_str()
+    );
+
+    sc_pid pid = sc_adb_execute(argv, flags);
+    return process_check_success_intr(intr, pid, "adb reverse", flags);
+}
+
+bool sc_adb_reverse_remove(sc_intr& intr, const std::string& serial, const std::string& device_socket_name, unsigned flags)
+{
+    std::string remote = std::string("localabstract:") + device_socket_name;; // localabstract:NAME
+
+    assert(!serial.empty());
+    std::vector<std::string> argv = SC_ADB_COMMAND("-s", serial, "reverse", "--remove", remote);
+
+    sc_pid pid = sc_adb_execute(argv, flags);
+    return process_check_success_intr(intr, pid, "adb reverse --remove", flags);
+}
+
+uint16_t sc_adb_get_device_sdk_version(sc_intr& intr, const std::string& serial);
+
+std::string
+sc_adb_getprop(sc_intr& intr, const std::string& serial, const char* prop,
+    unsigned flags) {
+    assert(!serial.empty());
+    std::vector<std::string> argv = SC_ADB_COMMAND("-s", serial, "shell", "getprop", prop);
+
+    sc_pipe pout;
+    sc_pid pid = sc_adb_execute_p(argv, flags, &pout);
+    if (pid == SC_PROCESS_NONE) {
+        //LOGE("Could not execute \"adb getprop\"");
+        return {};
+    }
+
+    std::vector<char> buf(128);
+    ssize_t r = sc_pipe_read_all_intr(intr, pid, pout, buf.data(), buf.size() - 1);
+    sc_pipe_close(pout);
+
+    if (!process_check_success_intr(intr, pid, "adb getprop", flags) || r == -1) {
+        return {};
+    }
+
+    assert(static_cast<size_t>(r) < buf.size());
+    buf[r] = '\0';
+
+    // 去掉尾部空白或换行
+    size_t len = strcspn(buf.data(), " \r\n");
+    buf[len] = '\0';
+
+    // 直接返回 std::string
+    return std::string(buf.data(), len);
+}
+
+uint16_t sc_adb_get_device_sdk_version(sc_intr& intr, const std::string& serial)
+{
+    std::string sdk_version =
+        sc_adb_getprop(intr, serial, "ro.build.version.sdk", SC_ADB_SILENT);
+    if (sdk_version.empty()) {
+        return 0;
+    }
+
+    auto val = sc_str_parse_integer("1234");
+    if (!val) {
+        return 0;
+    }
+
+    long value = *val;
+    return value;
 }

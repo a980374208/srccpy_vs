@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <charconv>
 #ifdef _WIN32
 #ifndef _WINSOCKAPI_
 #define _WINSOCKAPI_
@@ -171,4 +172,24 @@ std::string sc_str_join(const std::vector<std::string> &tokens, char sep)
     }
 
     return result;
+}
+
+std::string sc_str_quote(const std::string& src)
+{
+    return "\"" + src + "\"";
+}
+
+std::optional<long> sc_str_parse_integer(std::string_view s) {
+    if (s.empty()) {
+        return std::nullopt;
+    }
+
+    long value = 0;
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value, 0);
+
+    if (ec != std::errc() || ptr != s.data() + s.size()) {
+        return std::nullopt;
+    }
+
+    return value;
 }

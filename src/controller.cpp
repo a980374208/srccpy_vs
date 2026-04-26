@@ -43,7 +43,7 @@ void controller_stop(Controller *ctrl) {
     ctrl->running = 0;
 
     if (ctrl->control_socket != INVALID_SOCKET) {
-        net_close(ctrl->control_socket);
+        //net_close(ctrl->control_socket);
         ctrl->control_socket = INVALID_SOCKET;
     }
 
