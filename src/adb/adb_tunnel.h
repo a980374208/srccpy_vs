@@ -28,6 +28,9 @@ public:
 
     static bool
         listen_on_port(sc_intr& intr, const sc_socket& socket, uint16_t port);
+
+    bool sc_adb_tunnel_close(sc_intr& intr,
+        const std::string serial, const std::string device_socket_name);
    
 };
 

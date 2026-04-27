@@ -8,6 +8,7 @@
 #include "sc_intr.h"
 #include "adb_tunnel.h"
 #include "tick.h"
+#include "asio/sc_event.h"
 
 #define SC_DEVICE_NAME_FIELD_LENGTH 64
 
@@ -119,7 +120,26 @@ public:
     sc_pid
         execute_server(const struct sc_server_params& params);
 
+    bool
+        sc_server_connect_to(struct sc_server_info& info);
 
+    sc_socket
+        connect_to_server(unsigned attempts, sc_tick delay,
+            uint32_t host, uint16_t port);
+   
+    bool
+        sc_server_sleep(sc_tick deadline);
+
+    void
+        sc_server_kill_adb_if_requested();
+
+
+public:
+    sc_intr m_intr;
+    const struct sc_server_callbacks* m_cbs;
+    void* m_cbs_userdata;
+    sc_process_listener m_listener;
+    ServerConnectSignal m_connect_signal;
 private:
 
     static int run_server(void*);
@@ -134,15 +154,10 @@ private:
     sc_mutex m_mutex;
     sc_cond m_cond_stopped;
     bool m_stopped;
-
-    sc_intr m_intr;
     sc_adb_tunnel m_tunnel;
     sc_socket m_video_socket;
     sc_socket m_audio_socket;
     sc_socket m_control_socket;
-
-    const struct sc_server_callbacks *m_cbs;
-    void *m_cbs_userdata;
 };
 
 #endif // SC_SERVER_HPP

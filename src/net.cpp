@@ -260,3 +260,49 @@ bool net_connect(sc_socket socket, uint32_t addr, uint16_t port)
     return true;
 }
 
+sc_socket net_accept(sc_socket server_socket)
+{
+    sc_raw_socket raw_server_socket = unwrap(server_socket);
+
+    SOCKADDR_IN csin;
+    socklen_t sinsize = sizeof(csin);
+
+#ifdef HAVE_SOCK_CLOEXEC
+    sc_raw_socket raw_sock =
+        accept4(raw_server_socket, (SOCKADDR*)&csin, &sinsize, SOCK_CLOEXEC);
+#else
+    sc_raw_socket raw_sock =
+        accept(raw_server_socket, (SOCKADDR*)&csin, &sinsize);
+    if (raw_sock != SC_RAW_SOCKET_NONE && !set_cloexec_flag(raw_sock)) {
+        sc_raw_socket_close(raw_sock);
+        return SC_SOCKET_NONE;
+    }
+#endif
+    if (raw_sock == SC_RAW_SOCKET_NONE) {
+        net_perror("accept");
+        return SC_SOCKET_NONE;
+    }
+    return wrap(raw_sock);
+}
+
+ssize_t net_recv(sc_socket socket, void* buf, size_t len)
+{
+    sc_raw_socket raw_sock = unwrap(socket);
+    return recv(raw_sock, (char*)buf, len, 0);
+}
+
+bool net_set_tcp_nodelay(sc_socket socket, bool tcp_nodelay)
+{
+    sc_raw_socket raw_sock = unwrap(socket);
+
+    int value = tcp_nodelay ? 1 : 0;
+    int ret = setsockopt(raw_sock, IPPROTO_TCP, TCP_NODELAY,
+        (const char*)&value, sizeof(value));
+    if (ret == -1) {
+        net_perror("setsockopt(TCP_NODELAY)");
+        return false;
+    }
+
+    assert(ret == 0);
+    return true;
+}

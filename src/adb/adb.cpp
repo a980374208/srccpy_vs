@@ -70,12 +70,12 @@ sc_pid sc_adb_execute_p(const std::vector<std::string>& commands, unsigned flags
     return pid;
 }
 
-bool sc_adb_start_server(sc_intr* intr, unsigned flags)
+bool sc_adb_start_server(sc_intr& intr, unsigned flags)
 {
     std::vector<std::string> commands = SC_ADB_COMMAND("start-server");
     sc_pid pid = sc_adb_execute(commands, flags);
 
-    return false;
+    return process_check_success_intr(intr, pid, "adb start-server", flags);
 }
 
 bool sc_adb_list_devices(sc_intr& intr, unsigned flags, sc_vec_adb_devices& out_vec)
@@ -373,7 +373,7 @@ bool sc_adb_reverse(sc_intr& intr, const std::string& serial, const std::string&
     assert(!serial.empty() && !device_socket_name.empty());
 
     // 构造 local 和 remote 字符串
-    std::string local = "tcp:" + local_port;
+    std::string local = "tcp:" + std::to_string(local_port);
     std::string remote = "localabstract:" + device_socket_name;
 
     // 构造 adb 命令
@@ -448,4 +448,27 @@ uint16_t sc_adb_get_device_sdk_version(sc_intr& intr, const std::string& serial)
 
     long value = *val;
     return value;
+}
+
+bool sc_adb_forward_remove(sc_intr& intr, const std::string serial, uint16_t local_port, unsigned flags)
+{
+    // tcp:PORT
+	std::stringstream ss;
+	ss << "tcp:" << local_port;
+    std::string local = ss.str();
+    assert(!serial.empty());
+    const std::vector<std::string> argv =
+        SC_ADB_COMMAND("-s", serial, "forward", "--remove", local);
+
+    sc_pid pid = sc_adb_execute(argv, flags);
+
+    return process_check_success_intr(intr, pid, "adb forward --remove", flags);
+}
+
+bool sc_adb_kill_server(sc_intr& intr, unsigned flags)
+{
+    std::vector<std::string> argv = SC_ADB_COMMAND("kill-server");
+
+    sc_pid pid = sc_adb_execute(argv, flags);
+    return process_check_success_intr(intr, pid, "adb kill-server", flags);
 }

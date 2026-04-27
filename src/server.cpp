@@ -131,6 +131,62 @@ sc_server_get_display_ime_policy_name(enum sc_display_ime_policy policy)
     }
 }
 
+static void
+sc_server_on_terminated(void* userdata)
+{
+    sc_server* server = (sc_server*) userdata;
+
+    // If the server process dies before connecting to the server socket,
+    // then the client will be stuck forever on accept(). To avoid the problem,
+    // wake up the accept() call (or any other) when the server dies, like on
+    // stop() (it is safe to call interrupt() twice).
+    server->m_intr.intr_interrupt();
+
+    server->m_cbs->on_disconnected(*server, server->m_cbs_userdata);
+
+    //LOGD("Server terminated");
+}
+
+static bool
+connect_and_read_byte(sc_intr& intr, sc_socket socket,
+    uint32_t tunnel_host, uint16_t tunnel_port)
+{
+    bool ok = intr.net_connect_intr(socket, tunnel_host, tunnel_port);
+    if (!ok)
+    {
+        return false;
+    }
+
+    char byte;
+    // the connection may succeed even if the server behind the "adb tunnel"
+    // is not listening, so read one byte to detect a working connection
+    if (intr.net_recv_intr(socket, &byte, 1) != 1)
+    {
+        // the server is not listening yet behind the adb tunnel
+        return false;
+    }
+
+    return true;
+}
+
+static bool
+device_read_info(sc_intr& intr, sc_socket device_socket,
+    struct sc_server_info& info)
+{
+    uint8_t buf[SC_DEVICE_NAME_FIELD_LENGTH];
+    ssize_t r = intr.net_recv_intr(device_socket, buf, sizeof(buf));
+    if (r < SC_DEVICE_NAME_FIELD_LENGTH)
+    {
+        //LOGE("Could not retrieve device information");
+        return false;
+    }
+    // in case the client sends garbage
+    buf[SC_DEVICE_NAME_FIELD_LENGTH - 1] = '\0';
+    memcpy(info.device_name, (char*)buf, sizeof(info.device_name));
+
+    return true;
+}
+
 sc_server::sc_server(sc_server &&other) noexcept
 {
 }
@@ -166,6 +222,8 @@ bool sc_server::server_init(const sc_server_params *params, const sc_server_call
 	{
 		return false;
 	}
+
+    sc_cond_init(this->m_cond_stopped);
 
 	assert(cbs);
 	assert(cbs->on_connection_failed);
@@ -309,6 +367,13 @@ sc_pid sc_server::execute_server(const sc_server_params& params)
         cmd.push_back(ss.str());
     };
 
+    auto add_param_hex = [&cmd](std::string_view key, uint32_t value) {
+        std::ostringstream ss;
+        ss << key << std::hex << value << std::dec;  // fold expression，逐个拼接参数
+        cmd.push_back(ss.str());
+    };
+
+
 #define VALIDATE_STRING(s)       \
     do                           \
     {                            \
@@ -318,7 +383,7 @@ sc_pid sc_server::execute_server(const sc_server_params& params)
         }                        \
     } while (0)
 
-    add_param("scid=", params.scid);
+    add_param_hex("scid=", params.scid);
     add_param("log_level=", log_level_to_server_string(params.log_level));
 
     if (!params.video)
@@ -558,85 +623,391 @@ end:
     return pid;
 }
 
-
-int sc_server::run_server(void *data)
+bool sc_server::sc_server_connect_to(sc_server_info& info)
 {
-	sc_server* server = (sc_server*)data;
+   // struct sc_adb_tunnel* tunnel = &server->tunnel;
 
-	const struct sc_server_params& params = server->m_params;
+    assert(this->m_tunnel.m_enabled);
 
-	bool ok = sc_adb_start_server(&server->m_intr, 0);
-	struct sc_adb_device_selector selector;
-	const char* env_serial = getenv("ANDROID_SERIAL");
-	if (env_serial)
-	{
-		//LOGI("Using ANDROID_SERIAL: %s", env_serial);
-		selector.type = SC_ADB_DEVICE_SELECT_SERIAL;
-		selector.serial = env_serial;
-	}
-	else
-	{
-		selector.type = SC_ADB_DEVICE_SELECT_ALL;
-	}
+    const char* serial = this->m_serial.c_str();
+    assert(serial);
 
-	struct sc_adb_device device;
-	// Enumerate devices (including connection status, authorization state, device ID, etc.)
-	ok = sc_adb_select_device(server->m_intr, selector, 0, device);
+    bool video = this->m_params.video;
+    bool audio = this->m_params.audio;
+    bool control = this->m_params.control;
 
-	if (!ok)
-	{
-		//goto error_connection_failed;
-	}
+    sc_socket video_socket = SC_SOCKET_NONE;
+    sc_socket audio_socket = SC_SOCKET_NONE;
+    sc_socket control_socket = SC_SOCKET_NONE;
+    if (!this->m_tunnel.m_forward)
+    {
+        if (video)
+        {
+            video_socket =
+                this->m_intr.net_accept_intr(this->m_tunnel.m_server_socket);
+            if (video_socket == SC_SOCKET_NONE)
+            {
+                goto fail;
+            }
+        }
 
-	//if (params.tcpip)
-	//{
-		//assert(!params.tcpip_dst);
-		/*ok = sc_server_configure_tcpip_unknown_address(server,
-			device.serial);
-		if (!ok)
-		{
-			goto error_connection_failed;
-		}*/
-	//	assert(!server->m_serial.empty());
-	//}
-	//else
-	//{
-		server->m_serial = std::move(device.serial);
-	//}
+        if (audio)
+        {
+            audio_socket =
+                this->m_intr.net_accept_intr(this->m_tunnel.m_server_socket);
+            if (audio_socket == SC_SOCKET_NONE)
+            {
+                goto fail;
+            }
+        }
 
-	const std::string serial = server->m_serial;
-	assert(!serial.empty());
-	//LOGD("Device serial: %s", serial);
-	// 把运行手机屏幕、摄像头捕获等需要在android端执行的可执行程序推送到android的临时目录
-	ok = push_server(server->m_intr, serial);
-	if (!ok)
-	{
-		//goto error_connection_failed;
-	}
-	std::ostringstream oss;
-	oss << SC_SOCKET_NAME_PREFIX << params.scid;
-	server->m_device_socket_name = oss.str();
-	assert(!server->m_device_socket_name.empty());
+        if (control)
+        {
+            control_socket =
+                this->m_intr.net_accept_intr(this->m_tunnel.m_server_socket);
+            if (control_socket == SC_SOCKET_NONE)
+            {
+                goto fail;
+            }
+        }
+    }
+    else
+    {
+        uint32_t tunnel_host = this->m_params.tunnel_host;
+        if (!tunnel_host)
+        {
+            tunnel_host = IPV4_LOCALHOST;
+        }
 
-	ok = server->m_tunnel.adb_tunnel_open(server->m_intr, serial,
-		server->m_device_socket_name, params.port_range,
-		params.force_adb_forward);
+        uint16_t tunnel_port = this->m_params.tunnel_port;
+        if (!tunnel_port)
+        {
+            tunnel_port = this->m_tunnel.m_local_port;
+        }
 
-	if (!ok)
-	{
-		//goto error_connection_failed;
-	}
+        unsigned attempts = 100;
+        sc_tick delay = SC_TICK_FROM_MS(100);
+        sc_socket first_socket = this->connect_to_server(attempts, delay,
+            tunnel_host, tunnel_port);
+        if (first_socket == SC_SOCKET_NONE)
+        {
+            goto fail;
+        }
 
-	// server will connect to our server socket
-	sc_pid pid = server->execute_server( params);
-	if (pid == SC_PROCESS_NONE)
-	{
-		/*sc_adb_tunnel_close(&server->m_tunnel, &server->m_intr, serial,
-			server->m_device_socket_name);
-		goto error_connection_failed;*/
-	}
+        if (video)
+        {
+            video_socket = first_socket;
+        }
 
+        if (audio)
+        {
+            if (!video)
+            {
+                audio_socket = first_socket;
+            }
+            else
+            {
+                audio_socket = net_socket();
+                if (audio_socket == SC_SOCKET_NONE)
+                {
+                    goto fail;
+                }
+                bool ok = this->m_intr.net_connect_intr(audio_socket,
+                    tunnel_host, tunnel_port);
+                if (!ok)
+                {
+                    goto fail;
+                }
+            }
+        }
 
+        if (control)
+        {
+            if (!video && !audio)
+            {
+                control_socket = first_socket;
+            }
+            else
+            {
+                control_socket = net_socket();
+                if (control_socket == SC_SOCKET_NONE)
+                {
+                    goto fail;
+                }
+                bool ok = this->m_intr.net_connect_intr(control_socket,
+                    tunnel_host, tunnel_port);
+                if (!ok)
+                {
+                    goto fail;
+                }
+            }
+        }
+    }
 
-	return 0;
+    if (control_socket != SC_SOCKET_NONE)
+    {
+        // Disable Nagle's algorithm for the control socket
+        // (it only impacts the sending side, so it is useless to set it
+        // for the other sockets)
+        bool ok = net_set_tcp_nodelay(control_socket, true);
+        (void)ok; // error already logged
+    }
+
+    // we don't need the adb tunnel anymore
+    this->m_tunnel.sc_adb_tunnel_close(this->m_intr, serial,
+        this->m_device_socket_name);
+
+    sc_socket first_socket = video ? video_socket
+        : audio ? audio_socket
+        : control_socket;
+
+    // The sockets will be closed on stop if device_read_info() fails
+    bool ok = device_read_info(this->m_intr, first_socket, info);
+    if (!ok)
+    {
+        goto fail;
+    }
+
+    assert(!video || video_socket != SC_SOCKET_NONE);
+    assert(!audio || audio_socket != SC_SOCKET_NONE);
+    assert(!control || control_socket != SC_SOCKET_NONE);
+
+    this->m_video_socket = video_socket;
+    this->m_audio_socket = audio_socket;
+    this->m_control_socket = control_socket;
+
+    return true;
+
+fail:
+    if (video_socket != SC_SOCKET_NONE)
+    {
+        if (!net_close(video_socket))
+        {
+            //LOGW("Could not close video socket");
+        }
+    }
+
+    if (audio_socket != SC_SOCKET_NONE)
+    {
+        if (!net_close(audio_socket))
+        {
+            //LOGW("Could not close audio socket");
+        }
+    }
+
+    if (control_socket != SC_SOCKET_NONE)
+    {
+        if (!net_close(control_socket))
+        {
+            //LOGW("Could not close control socket");
+        }
+    }
+
+    if (this->m_tunnel.m_enabled)
+    {
+        // Always leave this function with tunnel disabled
+        this->m_tunnel.sc_adb_tunnel_close(this->m_intr, serial,
+            this->m_device_socket_name);
+    }
+
+    return false;
+}
+
+sc_socket sc_server::connect_to_server(unsigned attempts, sc_tick delay, uint32_t host, uint16_t port)
+{
+    do
+    {
+        //LOGD("Remaining connection attempts: %u", attempts);
+        sc_socket socket = net_socket();
+        if (socket != SC_SOCKET_NONE)
+        {
+            bool ok = connect_and_read_byte(this->m_intr, socket, host, port);
+            if (ok)
+            {
+                // it worked!
+                return socket;
+            }
+
+            net_close(socket);
+        }
+
+        if (this->m_intr.is_interrupted())
+        {
+            // Stop immediately
+            break;
+        }
+
+        if (attempts)
+        {
+            sc_tick deadline = sc_tick_now() + delay;
+            bool ok = this->sc_server_sleep(deadline);
+            if (!ok)
+            {
+                //LOGI("Connection attempt stopped");
+                break;
+            }
+        }
+    } while (--attempts);
+    return SC_SOCKET_NONE;
+}
+
+bool sc_server::sc_server_sleep(sc_tick deadline)
+{
+    std::unique_lock<sc_mutex> lock(this->m_mutex);
+    while (!this->m_stopped)
+    {
+        if (!sc_cond_timedwait(
+            this->m_cond_stopped,
+            this->m_mutex,
+            deadline))
+        {
+            // 超时
+            return true; // 仍然在 sleep 状态
+        }
+    }
+    // 被 stop 唤醒
+    return false;
+}
+
+void sc_server::sc_server_kill_adb_if_requested()
+{
+    if (this->m_params.kill_adb_on_close)
+    {
+        //LOGI("Killing adb server...");
+        unsigned flags = SC_ADB_NO_STDOUT | SC_ADB_NO_STDERR | SC_ADB_NO_LOGERR;
+        sc_adb_kill_server(this->m_intr, flags);
+    }
+}
+
+int sc_server::run_server(void* data)
+{
+    auto* server = static_cast<sc_server*>(data);
+    const auto& params = server->m_params;
+
+    // 1. 启动 adb server
+    if (!sc_adb_start_server(server->m_intr, 0)) {
+        server->sc_server_kill_adb_if_requested();
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
+
+    // 2. 选择设备
+    sc_adb_device_selector selector{};
+    if (const char* env_serial = getenv("ANDROID_SERIAL")) {
+        selector.type = SC_ADB_DEVICE_SELECT_SERIAL;
+        selector.serial = env_serial;
+    }
+    else {
+        selector.type = SC_ADB_DEVICE_SELECT_ALL;
+    }
+
+    sc_adb_device device{};
+    if (!sc_adb_select_device(server->m_intr, selector, 0, device)) {
+        server->sc_server_kill_adb_if_requested();
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
+
+    // 3. 确定 serial
+    if (!params.tcpip) {
+        server->m_serial = std::move(device.serial);
+    }
+    const std::string serial = server->m_serial;
+    if (serial.empty()) {
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
+
+    // 4. push server
+    if (!push_server(server->m_intr, serial)) {
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
+    auto scid_hex = [](uint32_t scid)
+        {
+            std::ostringstream oss;
+            oss << std::hex << scid;   // 小写 hex，和官方一致
+            return oss.str();
+        };
+
+    // 5. socket name
+    server->m_device_socket_name =
+        SC_SOCKET_NAME_PREFIX + scid_hex(params.scid);
+
+    // 6. 打开 adb tunnel（RAII：失败立即关闭）
+    if (!server->m_tunnel.adb_tunnel_open(
+        server->m_intr,
+        serial,
+        server->m_device_socket_name,
+        params.port_range,
+        params.force_adb_forward))
+    {
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
+
+    // 7. 启动 server 进程
+    sc_pid pid = server->execute_server(params);
+    if (pid == SC_PROCESS_NONE) {
+        server->m_tunnel.sc_adb_tunnel_close(
+            server->m_intr, serial, server->m_device_socket_name);
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
+
+    // 8. 注册进程终止回调
+    server->m_listener.on_terminated = [server]() {
+        server->m_intr.intr_interrupt();
+        if (server->m_cbs) {
+            server->m_cbs->on_disconnected(*server, server->m_cbs_userdata);
+        }
+        };
+
+    try {
+        // 9. observer（RAII）
+        process_observer_raii observer(pid, server->m_listener, server);
+
+        // 10. 连接 server socket
+        if (!server->sc_server_connect_to(server->m_info)) {
+            sc_process_terminate(pid);
+            sc_process_wait(pid, true);
+            server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+            return -1;
+        }
+
+        // 11. 已连接
+        server->m_cbs->on_connected(*server, server->m_cbs_userdata);
+
+        // 12. 等待 stop
+        {
+            std::lock_guard<sc_mutex> lock(server->m_mutex);
+            while (!server->m_stopped) {
+                sc_cond_wait(server->m_cond_stopped, server->m_mutex);
+            }
+        }
+
+        // 13. 中断 socket
+        if (server->m_video_socket != SC_SOCKET_NONE)
+            net_interrupt(server->m_video_socket);
+        if (server->m_audio_socket != SC_SOCKET_NONE)
+            net_interrupt(server->m_audio_socket);
+        if (server->m_control_socket != SC_SOCKET_NONE)
+            net_interrupt(server->m_control_socket);
+
+        // 14. 等待 server 退出
+        sc_tick deadline = sc_tick_now() + SC_TICK_FROM_SEC(1);
+        if (!observer.timedwait(deadline)) {
+            sc_process_terminate(pid);
+        }
+
+        sc_process_close(pid);
+        server->sc_server_kill_adb_if_requested();
+        return 0;
+    }
+    catch (const std::exception&) {
+        sc_process_terminate(pid);
+        sc_process_wait(pid, true);
+        server->m_cbs->on_connection_failed(*server, server->m_cbs_userdata);
+        return -1;
+    }
 }

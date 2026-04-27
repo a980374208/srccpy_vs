@@ -4,6 +4,7 @@
 #include "compat.h"
 #include <sys/types.h>
 #include <atomic>
+#include "sc_process.h"
 
 // 定义 sc_raw_socket 类型
 #ifdef _WIN32
@@ -50,6 +51,8 @@ typedef struct sc_socket_wrapper
 typedef sc_raw_socket sc_socket;
 #endif
 
+#define IPV4_LOCALHOST 0x7F000001
+
 // 网络初始化（Windows 需要）
 int net_init(void);
 
@@ -69,9 +72,20 @@ int net_send(socket_t sock, const char *data, int len);
 int net_recv(socket_t sock, char *buffer, int len);
 
 // 关闭 socket
-void net_close(socket_t sock);
+bool net_close(sc_socket sock);
 
 bool net_interrupt(sc_socket socket);
 
+sc_socket net_socket(void);
+
+bool net_listen(sc_socket server_socket, uint32_t addr, uint16_t port, int backlog);
+
+bool net_connect(sc_socket socket, uint32_t addr, uint16_t port);
+
+sc_socket net_accept(sc_socket server_socket);
+
+ssize_t net_recv(sc_socket socket, void* buf, size_t len);
+
+bool net_set_tcp_nodelay(sc_socket socket, bool tcp_nodelay);
 
 #endif // SCRCPY_NET_H

@@ -1,14 +1,27 @@
-#include "srccpy.hpp"
+﻿#include "srccpy.hpp"
 #include "rand.h"
 #include "server.hpp"
+#include "options.h"
+
+static bool await_for_signal(ServerConnectSignal& signal)
+{
+	std::future<bool> future = signal.promise.get_future();
+
+	bool ok = future.get(); //阻塞等待
+
+	return ok;
+}
+
 
 srccpy::srccpy()
 {
 }
 
-int srccpy::srccpy_init()
+int srccpy::srccpy_init(const scrcpy_options& options)
 {
     uint32_t scid = generate_scid();
+
+	enum scrcpy_exit_code ret = SCRCPY_EXIT_FAILURE;
 
     static const struct sc_server_callbacks cbs = {
         &srccpy::sc_server_on_connection_failed,
@@ -71,23 +84,44 @@ int srccpy::srccpy_init()
 	pm->vd_destroy_content = true;
 	pm->list = 0;
 
+	if (!server.server_init(pm, &cbs, this)) {
+		return SCRCPY_EXIT_FAILURE;
+	}
+	if (!server.server_start()) {
+		//goto end;
+	}
 
-    server.server_init(pm, &cbs, this);
-    server.server_start();
+	bool connected = await_for_signal(server.m_connect_signal);
+	if (!connected) {
+		//LOGE("Server connection failed");
+		//goto end;
+	}
+	if (options.video)
+	{
+		/*static const struct sc_demuxer_callbacks video_demuxer_cbs = {
+			.on_ended = sc_video_demuxer_on_ended,
+		};
+		sc_demuxer_init(&s->video_demuxer, "video", s->server.video_socket,
+			&video_demuxer_cbs, NULL);*/
+	}
+
 
     return 0;
 }
 
 void srccpy::sc_server_on_connection_failed(sc_server &server, void *userdata)
 {
+	server.m_connect_signal.promise.set_value(false);
 }
 
 void srccpy::sc_server_on_connected(sc_server &server, void *userdata)
 {
+	server.m_connect_signal.promise.set_value(true);
 }
 
 void srccpy::sc_server_on_disconnected(sc_server &server, void *userdata)
 {
+	//LOGD("Server disconnected");
 }
 
 uint32_t srccpy::generate_scid()

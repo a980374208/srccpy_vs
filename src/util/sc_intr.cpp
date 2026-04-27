@@ -64,17 +64,42 @@ bool sc_intr::net_listen_intr(sc_socket server_socket, uint32_t addr, uint16_t p
     return ret;
 }
 
-bool sc_intr::net_connect_intr(sc_intr& intr, sc_socket socket, uint32_t addr, uint16_t port)
+bool sc_intr::net_connect_intr(sc_socket socket, uint32_t addr, uint16_t port)
 {
-    if (!intr.set_socket(socket)) {
+    if (!this->set_socket(socket)) {
         // Already interrupted
         return false;
     }
 
     bool ret = net_connect(socket, addr, port);
 
-    intr.set_socket(SC_SOCKET_NONE);
+    this->set_socket(SC_SOCKET_NONE);
     return ret;
+}
+
+sc_socket sc_intr::net_accept_intr(sc_socket server_socket)
+{
+    if (!this->set_socket(server_socket)) {
+        // Already interrupted
+        return SC_SOCKET_NONE;
+    }
+
+    sc_socket socket = net_accept(server_socket);
+	this->set_socket(SC_SOCKET_NONE);
+    return socket;
+}
+
+ssize_t sc_intr::net_recv_intr(sc_socket socket, void* buf, size_t len)
+{
+    if (!this->set_socket(socket)) {
+        // Already interrupted
+        return -1;
+    }
+
+    ssize_t r = net_recv(socket, buf, len);
+
+    this->set_socket(SC_SOCKET_NONE);
+    return r;
 }
 
 bool sc_intr::set_process(sc_pid pid)

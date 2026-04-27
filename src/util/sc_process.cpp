@@ -1,9 +1,28 @@
 #include "sc_process.h"
 #include <assert.h>
 #include "str_util.h"
-
+#include "sc_thread.h"
 
 #define CMD_MAX_LEN 8192
+
+static int
+run_observer(void* data) {
+    struct sc_process_observer* observer = (struct sc_process_observer*)data;
+    sc_process_wait(observer->pid, false); // ignore exit code
+    {
+        std::lock_guard<sc_mutex> lock(observer->mutex);
+        observer->terminated = true;
+        sc_cond_signal(observer->cond_terminated);
+    }
+	
+
+    if (observer->listener) {
+        observer->listener->on_terminated();
+    }
+
+    return 0;
+}
+
 
 sc_process_result sc_process_execute_p(const std::vector<std::string> commands, HANDLE* handle, unsigned flags, HANDLE* pin, HANDLE* pout, HANDLE* perr)
 {
@@ -264,4 +283,54 @@ sc_exit_code sc_process_wait(HANDLE handle, bool close)
         CloseHandle(handle);
     }
     return code;
+}
+
+bool sc_process_observer_init(sc_process_observer& observer, sc_pid pid, const sc_process_listener& listener, void* listener_userdata)
+{
+    // Either no listener, or on_terminated() is defined
+    assert(listener.on_terminated);
+
+    std::lock_guard<sc_mutex> lock(observer.mutex);
+
+    sc_cond_init(observer.cond_terminated);
+    observer.pid = pid;
+    observer.listener = &listener;
+    observer.listener_userdata = listener_userdata;
+    observer.terminated = false;
+
+    bool ok = sc_thread_create(&observer.thread, run_observer, "scrcpy-proc",
+        &observer);
+
+    if (!ok) {
+        return false;
+    }
+
+    return true;
+}
+
+void sc_process_observer_join(sc_process_observer& observer)
+{
+    sc_thread_join(observer.thread, NULL);
+}
+
+void sc_process_observer_destroy(sc_process_observer& observer)
+{
+	//Smart pointers manage object lifetimes automatically, eliminating the need for explicit deallocation.
+
+    /*sc_cond_destroy(&observer->cond_terminated);
+    sc_mutex_destroy(&observer->mutex);*/
+}
+
+bool sc_process_observer_timedwait(sc_process_observer& observer, sc_tick deadline)
+{
+    std::unique_lock<sc_mutex> lock(observer.mutex);
+
+    while (!observer.terminated) {
+        if (!sc_cond_timedwait(observer.cond_terminated,
+            observer.mutex, deadline)) {
+            return false; // timeout
+        }
+    }
+
+    return true;
 }

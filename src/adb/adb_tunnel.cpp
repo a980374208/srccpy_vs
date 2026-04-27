@@ -109,3 +109,33 @@ bool sc_adb_tunnel::listen_on_port(sc_intr& intr, const sc_socket& socket, uint1
     return intr.net_listen_intr(socket, IPV4_LOCALHOST, port, 1);
 }
 
+bool sc_adb_tunnel::sc_adb_tunnel_close(sc_intr& intr, const std::string serial, const std::string device_socket_name)
+{
+    assert(this->m_enabled);
+
+    bool ret;
+    if (this->m_forward)
+    {
+        ret = sc_adb_forward_remove(intr, serial, this->m_local_port,
+            SC_ADB_NO_STDOUT);
+    }
+    else
+    {
+        ret = sc_adb_reverse_remove(intr, serial, device_socket_name,
+            SC_ADB_NO_STDOUT);
+
+        assert(this->m_server_socket != SC_SOCKET_NONE);
+        if (!net_close(this->m_server_socket))
+        {
+            //LOGW("Could not close server socket");
+        }
+
+        // server_socket is never used anymore
+    }
+
+    // Consider tunnel disabled even if the command failed
+    this->m_enabled = false;
+
+    return ret;
+}
+

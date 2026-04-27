@@ -34,7 +34,7 @@ sc_pid sc_adb_execute(const std::vector<std::string> &commands, unsigned flags);
 
 static sc_pid sc_adb_execute_p(const std::vector<std::string> &commands, unsigned flags, sc_pipe* pout);
 
-bool sc_adb_start_server(sc_intr* intr, unsigned flags);
+bool sc_adb_start_server(sc_intr& intr, unsigned flags);
 
 static bool
 sc_adb_list_devices(sc_intr& intr, unsigned flags,
@@ -84,3 +84,10 @@ sc_adb_reverse_remove(sc_intr& intr, const std::string& serial,
 
 uint16_t
 sc_adb_get_device_sdk_version(sc_intr& intr, const std::string& serial);
+
+bool
+sc_adb_forward_remove(sc_intr& intr, const std::string serial,
+    uint16_t local_port, unsigned flags);
+
+bool
+sc_adb_kill_server(sc_intr& intr, unsigned flags);

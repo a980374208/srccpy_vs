@@ -33,8 +33,12 @@ public:
             uint16_t port, int backlog);
 
     bool
-        net_connect_intr(sc_intr& intr, sc_socket socket, uint32_t addr,
+        net_connect_intr(sc_socket socket, uint32_t addr,
             uint16_t port);
 
-    
+    sc_socket
+        net_accept_intr(sc_socket server_socket);
+
+    ssize_t
+        net_recv_intr(sc_socket socket, void* buf, size_t len);
 };

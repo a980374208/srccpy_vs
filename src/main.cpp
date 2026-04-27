@@ -3,6 +3,7 @@
 #include "device.h"
 #include "controller.h"
 #include "srccpy.h"
+
 int main(int argc, char *argv[])
 {
     LOGI("MAIN", "Scrcpy Lite v1.0.0");

@@ -28,11 +28,24 @@ set(CORE_SOURCES
     util/sc_thread.cpp
     util/sc_process.cpp
     util/process_intr.cpp
+    #事件
+    asio/sc_event.cpp
+
+    #编解码
+    codec/demuxer.cpp
+    codec/packet_source.cpp
+    codec/packet_sink.cpp
+
 
 )
 
 # 创建静态库（使用 C++ 编译器以支持混合编译）
 add_library(scrcpy_core STATIC ${CORE_SOURCES})
+
+target_include_directories(scrcpy_core PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/asio
+    ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/include
+)
 
 # 添加编译定义（特别是 Windows 平台）
 if(WIN32)
@@ -50,6 +63,25 @@ set_target_properties(scrcpy_core PROPERTIES
 # Windows 平台特定链接库
 if(WIN32)
     target_link_libraries(scrcpy_core PRIVATE ws2_32)
+    
+    # 链接 FFmpeg 库
+    target_link_libraries(scrcpy_core PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/avcodec.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/avformat.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/avutil.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/swscale.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/swresample.lib
+    )
+else()
+    # Linux/macOS 平台链接 FFmpeg
+    target_link_libraries(scrcpy_core PRIVATE
+        avcodec
+        avformat
+        avutil
+        swscale
+        swresample
+        pthread  # for asio
+    )
 endif()
 
 # 主应用程序

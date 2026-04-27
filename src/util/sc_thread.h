@@ -6,12 +6,15 @@
 #include <atomic>
 #include <memory>
 #include <cstring>
+#include "tick.h"
+#include <future>
 
 typedef std::atomic_uint sc_atomic_thread_id;
 typedef int sc_thread_fn(void *);
 
 typedef struct sc_thread
 {
+    std::future<bool> result;
     std::unique_ptr<std::thread> thread;
 } sc_thread;
 
@@ -38,6 +41,8 @@ public:
 
     void unlock();
 
+    std::mutex& native();
+
 #ifndef NDEBUG
     bool held() const;
 #endif
@@ -57,9 +62,27 @@ static_assert(std::is_same_v<
 
 typedef struct sc_cond
 {
-    std::condition_variable *cond;
+    /*You can directly make cond a member variable, 
+      so there¡¯s no need to initialize it in sc_cond_init.
+      Using a smart pointer here is just a habit of 
+      using smart pointers.*/ 
+    std::unique_ptr<std::condition_variable> cond;
 } sc_cond;
 
 
 bool sc_thread_create(sc_thread *thread, sc_thread_fn fn, const char *name,
                       void *userdata);
+
+bool
+sc_cond_init(sc_cond& cond);
+
+void sc_cond_signal(sc_cond& cond);
+
+void
+sc_cond_wait(sc_cond& cond, sc_mutex& mutex);
+
+bool
+sc_cond_timedwait(sc_cond& cond, sc_mutex& mutex, sc_tick deadline);
+
+void
+sc_thread_join(sc_thread& thread, int* status);
