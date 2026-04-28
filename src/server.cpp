@@ -240,7 +240,7 @@ bool sc_server::server_init(const sc_server_params *params, const sc_server_call
 bool sc_server::server_start()
 {
 	bool ok =
-		sc_thread_create(&this->m_thread, run_server, "scrcpy-server", this);
+		sc_thread_create(this->m_thread, run_server, "scrcpy-server", this);
 	if (!ok)
 	{
 		//LOGE("Could not create server thread");

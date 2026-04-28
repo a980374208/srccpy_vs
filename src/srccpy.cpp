@@ -2,45 +2,91 @@
 #include "rand.h"
 #include "server.hpp"
 #include "options.h"
+#include "codec/demuxer.h"
+#include "codec/packet_sink.h"
+#include <thread>
 
-static bool await_for_signal(ServerConnectSignal& signal)
+static bool await_for_signal(ServerConnectSignal &signal)
 {
 	std::future<bool> future = signal.promise.get_future();
 
-	bool ok = future.get(); //阻塞等待
+	bool ok = future.get(); // 阻塞等待
 
 	return ok;
 }
 
+static void
+sc_video_demuxer_on_ended(struct sc_demuxer *demuxer,
+						  enum sc_demuxer_status status, void *userdata)
+{
+	(void)demuxer;
+	(void)userdata;
+
+	// The device may not decide to disable the video
+	assert(status != SC_DEMUXER_STATUS_DISABLED);
+
+	if (status == SC_DEMUXER_STATUS_EOS)
+	{
+		// sc_push_event(SC_EVENT_DEVICE_DISCONNECTED);
+	}
+	else
+	{
+		// sc_push_event(SC_EVENT_DEMUXER_ERROR);
+	}
+}
+
+static void
+sc_audio_demuxer_on_ended(struct sc_demuxer *demuxer,
+						  enum sc_demuxer_status status, void *userdata)
+{
+	(void)demuxer;
+
+	const struct scrcpy_options *options = (const struct scrcpy_options *)userdata;
+
+	// Contrary to the video demuxer, keep mirroring if only the audio fails
+	// (unless --require-audio is set).
+	if (status == SC_DEMUXER_STATUS_EOS)
+	{
+		// sc_push_event(SC_EVENT_DEVICE_DISCONNECTED);
+	}
+	else if (status == SC_DEMUXER_STATUS_ERROR || (status == SC_DEMUXER_STATUS_DISABLED && options->require_audio))
+	{
+		// sc_push_event(SC_EVENT_DEMUXER_ERROR);
+	}
+}
 
 srccpy::srccpy()
 {
 }
 
-int srccpy::srccpy_init(const scrcpy_options& options)
+srccpy::~srccpy()
 {
-    uint32_t scid = generate_scid();
+}
+
+int srccpy::srccpy_init(const scrcpy_options &options)
+{
+	uint32_t scid = generate_scid();
 
 	enum scrcpy_exit_code ret = SCRCPY_EXIT_FAILURE;
+	bool video_demuxer_started = false;
+	bool audio_demuxer_started = false;
 
-    static const struct sc_server_callbacks cbs = {
-        &srccpy::sc_server_on_connection_failed,
-        &srccpy::sc_server_on_connected,
-        &srccpy::sc_server_on_disconnected};
-    struct sc_server_params *pm = (struct sc_server_params *)malloc(sizeof(struct sc_server_params));
-    memset(pm, 0, sizeof(pm));
+	static const struct sc_server_callbacks cbs = {
+		&srccpy::sc_server_on_connection_failed,
+		&srccpy::sc_server_on_connected,
+		&srccpy::sc_server_on_disconnected};
+	struct sc_server_params *pm = (struct sc_server_params *)malloc(sizeof(struct sc_server_params));
+	memset(pm, 0, sizeof(pm));
 	pm->scid = scid;
 	pm->req_serial = nullptr;
 
-    
-
-    pm->log_level = SC_LOG_LEVEL_DEBUG;
-    pm->video_codec = SC_CODEC_H264;
-    pm->audio_codec = SC_CODEC_AAC;
-    pm->video_source = SC_VIDEO_SOURCE_DISPLAY;
-    pm->audio_source = SC_AUDIO_SOURCE_MIC;
-    pm->camera_facing = SC_CAMERA_FACING_FRONT;
-    pm->crop = nullptr;
+	pm->log_level = SC_LOG_LEVEL_DEBUG;
+	pm->video_codec = SC_CODEC_H264;
+	pm->audio_codec = SC_CODEC_OPUS;
+	pm->video_source = SC_VIDEO_SOURCE_DISPLAY;
+	pm->audio_source = SC_AUDIO_SOURCE_MIC;
+	pm->camera_facing = SC_CAMERA_FACING_FRONT;
+	pm->crop = nullptr;
 	pm->video_codec_options = nullptr;
 	pm->audio_codec_options = nullptr;
 	pm->video_encoder = nullptr;
@@ -58,15 +104,15 @@ int srccpy::srccpy_init(const scrcpy_options& options)
 	pm->audio_bit_rate = 0;
 	pm->max_fps = nullptr;
 	pm->angle = nullptr;
-    pm->screen_off_timeout = -1;
+	pm->screen_off_timeout = -1;
 	pm->capture_orientation = SC_ORIENTATION_0;
 	pm->capture_orientation_lock = SC_ORIENTATION_UNLOCKED;
 	pm->control = false;
 	pm->display_id = 0;
 	pm->new_display = nullptr;
-	pm->display_ime_policy = SC_DISPLAY_IME_POLICY_UNDEFINED;   
+	pm->display_ime_policy = SC_DISPLAY_IME_POLICY_UNDEFINED;
 	pm->video = true;
-	pm->audio = false;
+	pm->audio = true;
 	pm->audio_dup = false;
 	pm->show_touches = false;
 	pm->stay_awake = false;
@@ -84,29 +130,72 @@ int srccpy::srccpy_init(const scrcpy_options& options)
 	pm->vd_destroy_content = true;
 	pm->list = 0;
 
-	if (!server.server_init(pm, &cbs, this)) {
+	if (!server.server_init(pm, &cbs, this))
+	{
 		return SCRCPY_EXIT_FAILURE;
 	}
-	if (!server.server_start()) {
-		//goto end;
+	if (!server.server_start())
+	{
+		// goto end;
 	}
 
 	bool connected = await_for_signal(server.m_connect_signal);
-	if (!connected) {
-		//LOGE("Server connection failed");
-		//goto end;
+	if (!connected)
+	{
+		// LOGE("Server connection failed");
+		// goto end;
 	}
+
+	// 启动线程，捕获 shared_ptr 保持 io_context 存活
+
 	if (options.video)
 	{
-		/*static const struct sc_demuxer_callbacks video_demuxer_cbs = {
-			.on_ended = sc_video_demuxer_on_ended,
-		};
-		sc_demuxer_init(&s->video_demuxer, "video", s->server.video_socket,
-			&video_demuxer_cbs, NULL);*/
+		std::shared_ptr<sc_demuxer_callbacks> video_demuxer_cbs = std::make_shared<sc_demuxer_callbacks>();
+
+		video_demuxer_cbs->on_ended = sc_video_demuxer_on_ended;
+		this->video_demuxer.init("video", this->server.m_video_socket,
+								 video_demuxer_cbs, NULL);
+
+		// 添加文件保存 sink（H.264 格式）
+		auto file_sink = std::make_shared<sc_file_packet_sink>("video_stream", AV_CODEC_ID_H264);
+		this->video_demuxer.packet_source.add_sink(file_sink);
 	}
 
+	if (options.audio)
+	{
+		std::shared_ptr<sc_demuxer_callbacks> audio_demuxer_cbs = std::make_shared<sc_demuxer_callbacks>();
+		audio_demuxer_cbs->on_ended = sc_audio_demuxer_on_ended;
 
-    return 0;
+		this->audio_demuxer.init("audio", this->server.m_audio_socket,
+								 audio_demuxer_cbs, (void *)&options);
+
+		// 添加文件保存 sink（Opus 格式）
+		auto file_sink = std::make_shared<sc_file_packet_sink>("audio_stream", AV_CODEC_ID_OPUS);
+		this->audio_demuxer.packet_source.add_sink(file_sink);
+	}
+
+	///**************************************解码逻辑待编写
+	//**********************************************************************/
+
+	if (options.video)
+	{
+		if (!this->video_demuxer.start())
+		{
+			// goto end;
+		}
+		video_demuxer_started = true;
+	}
+
+	if (options.audio)
+	{
+		if (!this->audio_demuxer.start())
+		{
+			// goto end;
+		}
+		audio_demuxer_started = true;
+	}
+
+	return 0;
 }
 
 void srccpy::sc_server_on_connection_failed(sc_server &server, void *userdata)
@@ -121,12 +210,12 @@ void srccpy::sc_server_on_connected(sc_server &server, void *userdata)
 
 void srccpy::sc_server_on_disconnected(sc_server &server, void *userdata)
 {
-	//LOGD("Server disconnected");
+	// LOGD("Server disconnected");
 }
 
 uint32_t srccpy::generate_scid()
 {
-    sc_rand rand;
-    // Only use 31 bits to avoid issues with signed values on the Java-side
-    return rand.sc_rand_u32() & 0x7FFFFFFF;
+	sc_rand rand;
+	// Only use 31 bits to avoid issues with signed values on the Java-side
+	return rand.sc_rand_u32() & 0x7FFFFFFF;
 }

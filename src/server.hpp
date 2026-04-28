@@ -140,9 +140,6 @@ public:
     void* m_cbs_userdata;
     sc_process_listener m_listener;
     ServerConnectSignal m_connect_signal;
-private:
-
-    static int run_server(void*);
 
     struct sc_server_params m_params; 
     std::string m_serial; 
@@ -158,6 +155,10 @@ private:
     sc_socket m_video_socket;
     sc_socket m_audio_socket;
     sc_socket m_control_socket;
+
+private:
+
+    static int run_server(void*);
 };
 
 #endif // SC_SERVER_HPP

@@ -22,6 +22,7 @@ set(CORE_SOURCES
     util/tick.cpp
     util/sc_file.cpp
     util/sc_log.cpp
+    util/options.cpp
 
     # 系统相关
     env.cpp
@@ -35,14 +36,18 @@ set(CORE_SOURCES
     codec/demuxer.cpp
     codec/packet_source.cpp
     codec/packet_sink.cpp
+    codec/packet_merge.cpp
 
 
 )
 
 # 创建静态库（使用 C++ 编译器以支持混合编译）
 add_library(scrcpy_core STATIC ${CORE_SOURCES})
+target_compile_features(scrcpy_core PUBLIC cxx_std_17)
+target_compile_definitions(scrcpy_core PRIVATE ASIO_STANDALONE)
 
-target_include_directories(scrcpy_core PRIVATE
+
+target_include_directories(scrcpy_core PUBLIC
     ${CMAKE_SOURCE_DIR}/third_party/asio
     ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/include
 )
@@ -53,6 +58,9 @@ if(WIN32)
         _CRT_SECURE_NO_WARNINGS
         _WIN32_WINNT=0x0601
     )
+else()
+    find_package(Threads REQUIRED)
+    target_link_libraries(scrcpy_core PRIVATE Threads::Threads)  #for asio
 endif()
 
 # 设置库的语言为 CXX，以便链接 C++ 标准库
@@ -96,4 +104,22 @@ target_link_libraries(scrcpy_app PRIVATE scrcpy_core)
 target_link_libraries(scrcpy_app PRIVATE)
 if(WIN32)
     target_link_libraries(scrcpy_app PRIVATE ws2_32)
+    
+    # 链接 FFmpeg 库到可执行文件（因为 scrcpy_core 是静态库）
+    target_link_libraries(scrcpy_app PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/avcodec.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/avformat.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/avutil.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/swscale.lib
+        ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/swresample.lib
+    )
+else()
+    # Linux/macOS 平台链接 FFmpeg
+    target_link_libraries(scrcpy_app PRIVATE
+        avcodec
+        avformat
+        avutil
+        swscale
+        swresample
+    )
 endif()

@@ -291,6 +291,12 @@ ssize_t net_recv(sc_socket socket, void* buf, size_t len)
     return recv(raw_sock, (char*)buf, len, 0);
 }
 
+ssize_t net_recv_all(sc_socket socket, void* buf, size_t len)
+{
+    sc_raw_socket raw_sock = unwrap(socket);
+    return recv(raw_sock, (char*)buf, len, MSG_WAITALL);
+}
+
 bool net_set_tcp_nodelay(sc_socket socket, bool tcp_nodelay)
 {
     sc_raw_socket raw_sock = unwrap(socket);

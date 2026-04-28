@@ -298,7 +298,7 @@ bool sc_process_observer_init(sc_process_observer& observer, sc_pid pid, const s
     observer.listener_userdata = listener_userdata;
     observer.terminated = false;
 
-    bool ok = sc_thread_create(&observer.thread, run_observer, "scrcpy-proc",
+    bool ok = sc_thread_create(observer.thread, run_observer, "scrcpy-proc",
         &observer);
 
     if (!ok) {

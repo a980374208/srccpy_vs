@@ -2,7 +2,8 @@
 #include "net.h"
 #include "device.h"
 #include "controller.h"
-#include "srccpy.h"
+#include "srccpy.hpp"
+#include "util/options.h"
 
 int main(int argc, char *argv[])
 {
@@ -17,7 +18,7 @@ int main(int argc, char *argv[])
     }
 
     srccpy sr;
-	sr.srccpy_init();
+    sr.srccpy_init(scrcpy_options_default);
     // 初始化设备信息（使用 calloc 确保内存清零）
     DeviceInfo *device = (DeviceInfo *)calloc(1, sizeof(DeviceInfo));
     if (device == NULL)

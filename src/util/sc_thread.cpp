@@ -13,14 +13,14 @@
 #include <atomic>
 
 
-bool sc_thread_create(sc_thread *thread, sc_thread_fn fn, const char *name, void *userdata)
+bool sc_thread_create(sc_thread &thread, sc_thread_fn fn, const char *name, void *userdata)
 {
     assert(strlen(name) <= 15);
     std::promise<bool> p;
-    thread->result = p.get_future();
+    thread.result = p.get_future();
     try
     {
-        thread->thread = std::make_unique<std::thread>(
+        thread.thread = std::make_unique<std::thread>(
             [fn, userdata, p = std::move(p)]() mutable {
                 try {
                     p.set_value(fn(userdata));

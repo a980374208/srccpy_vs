@@ -70,7 +70,7 @@ typedef struct sc_cond
 } sc_cond;
 
 
-bool sc_thread_create(sc_thread *thread, sc_thread_fn fn, const char *name,
+bool sc_thread_create(sc_thread &thread, sc_thread_fn fn, const char *name,
                       void *userdata);
 
 bool
