@@ -17,9 +17,6 @@ typedef int64_t sc_tick;
 #define SC_TICK_FROM_MS(ms) ((sc_tick)(ms) * 1000)
 #define SC_TICK_FROM_SEC(sec) ((sc_tick)(sec) * 1000000)
 
-sc_tick
-sc_tick_now(void);
+sc_tick sc_tick_now(void);
 
 #endif
-
-

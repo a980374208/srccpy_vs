@@ -5,9 +5,9 @@
 
 // 控制器结构
 typedef struct {
-    DeviceInfo *device;
-    socket_t control_socket;
-    int running;
+	DeviceInfo *device;
+	socket_t control_socket;
+	int running;
 } Controller;
 
 // 初始化控制器

@@ -31,19 +31,17 @@ typedef int sc_raw_socket;
 // MSVC 不支持 C11 <stdatomic.h>，使用 Windows Interlocked 函数
 #include <windows.h>
 #define SC_SOCKET_NONE NULL
-typedef struct sc_socket_wrapper
-{
-    sc_raw_socket socket;
-    std::atomic_flag closed;
+typedef struct sc_socket_wrapper {
+	sc_raw_socket socket;
+	std::atomic_flag closed;
 } *sc_socket;
 #else
 // GCC/Clang 支持 C11 原子操作
 #include <stdatomic.h>
 #define SC_SOCKET_NONE NULL
-typedef struct sc_socket_wrapper
-{
-    sc_raw_socket socket;
-    atomic_flag closed;
+typedef struct sc_socket_wrapper {
+	sc_raw_socket socket;
+	atomic_flag closed;
 } *sc_socket;
 #endif
 #else
@@ -84,10 +82,9 @@ bool net_connect(sc_socket socket, uint32_t addr, uint16_t port);
 
 sc_socket net_accept(sc_socket server_socket);
 
-ssize_t net_recv(sc_socket socket, void* buf, size_t len);
+ssize_t net_recv(sc_socket socket, void *buf, size_t len);
 
-ssize_t
-net_recv_all(sc_socket socket, void* buf, size_t len);
+ssize_t net_recv_all(sc_socket socket, void *buf, size_t len);
 
 bool net_set_tcp_nodelay(sc_socket socket, bool tcp_nodelay);
 

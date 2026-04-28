@@ -3,11 +3,7 @@
 #include "iostream"
 #include "assert.h"
 
-sc_packet_source::sc_packet_source()
-	: sink_count(0),
-	  sinks{}
-{
-}
+sc_packet_source::sc_packet_source() : sink_count(0), sinks{} {}
 
 sc_packet_source::~sc_packet_source()
 {
@@ -15,7 +11,7 @@ sc_packet_source::~sc_packet_source()
 }
 
 void sc_packet_source::add_sink(std::shared_ptr<sc_packet_sink> sink)
-{	
+{
 	assert(this->sink_count < SC_PACKET_SOURCE_MAX_SINKS);
 	assert(sink);
 	assert(sink->ops);
@@ -35,7 +31,7 @@ bool sc_packet_source::open_sinks(AVCodecContext *ctx)
 	return true;
 }
 
-bool sc_packet_source::push_packet(const AVPacket* packet)
+bool sc_packet_source::push_packet(const AVPacket *packet)
 {
 	assert(this->sink_count);
 	for (unsigned i = 0; i < this->sink_count; ++i) {
@@ -57,10 +53,8 @@ void sc_packet_source::close_sinks()
 void sc_packet_source::disable_sinks()
 {
 	assert(this->sink_count);
-	for (unsigned i = 0; i < sink_count; ++i)
-	{
-		if (sinks[i] && sinks[i]->ops && sinks[i]->ops->disable)
-		{
+	for (unsigned i = 0; i < sink_count; ++i) {
+		if (sinks[i] && sinks[i]->ops && sinks[i]->ops->disable) {
 			sinks[i]->ops->disable(sinks[i]);
 		}
 	}

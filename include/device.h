@@ -7,7 +7,7 @@
 int device_init(DeviceInfo *info, const char *serial);
 
 // 获取设备名称
-const char* device_get_name(const DeviceInfo *info);
+const char *device_get_name(const DeviceInfo *info);
 
 // 获取设备尺寸
 void device_get_size(const DeviceInfo *info, int *width, int *height);

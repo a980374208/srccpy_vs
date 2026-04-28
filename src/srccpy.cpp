@@ -15,9 +15,7 @@ static bool await_for_signal(ServerConnectSignal &signal)
 	return ok;
 }
 
-static void
-sc_video_demuxer_on_ended(struct sc_demuxer *demuxer,
-						  enum sc_demuxer_status status, void *userdata)
+static void sc_video_demuxer_on_ended(struct sc_demuxer *demuxer, enum sc_demuxer_status status, void *userdata)
 {
 	(void)demuxer;
 	(void)userdata;
@@ -25,19 +23,14 @@ sc_video_demuxer_on_ended(struct sc_demuxer *demuxer,
 	// The device may not decide to disable the video
 	assert(status != SC_DEMUXER_STATUS_DISABLED);
 
-	if (status == SC_DEMUXER_STATUS_EOS)
-	{
+	if (status == SC_DEMUXER_STATUS_EOS) {
 		// sc_push_event(SC_EVENT_DEVICE_DISCONNECTED);
-	}
-	else
-	{
+	} else {
 		// sc_push_event(SC_EVENT_DEMUXER_ERROR);
 	}
 }
 
-static void
-sc_audio_demuxer_on_ended(struct sc_demuxer *demuxer,
-						  enum sc_demuxer_status status, void *userdata)
+static void sc_audio_demuxer_on_ended(struct sc_demuxer *demuxer, enum sc_demuxer_status status, void *userdata)
 {
 	(void)demuxer;
 
@@ -45,23 +38,17 @@ sc_audio_demuxer_on_ended(struct sc_demuxer *demuxer,
 
 	// Contrary to the video demuxer, keep mirroring if only the audio fails
 	// (unless --require-audio is set).
-	if (status == SC_DEMUXER_STATUS_EOS)
-	{
+	if (status == SC_DEMUXER_STATUS_EOS) {
 		// sc_push_event(SC_EVENT_DEVICE_DISCONNECTED);
-	}
-	else if (status == SC_DEMUXER_STATUS_ERROR || (status == SC_DEMUXER_STATUS_DISABLED && options->require_audio))
-	{
+	} else if (status == SC_DEMUXER_STATUS_ERROR ||
+		   (status == SC_DEMUXER_STATUS_DISABLED && options->require_audio)) {
 		// sc_push_event(SC_EVENT_DEMUXER_ERROR);
 	}
 }
 
-srccpy::srccpy()
-{
-}
+srccpy::srccpy() {}
 
-srccpy::~srccpy()
-{
-}
+srccpy::~srccpy() {}
 
 int srccpy::srccpy_init(const scrcpy_options &options)
 {
@@ -71,10 +58,9 @@ int srccpy::srccpy_init(const scrcpy_options &options)
 	bool video_demuxer_started = false;
 	bool audio_demuxer_started = false;
 
-	static const struct sc_server_callbacks cbs = {
-		&srccpy::sc_server_on_connection_failed,
-		&srccpy::sc_server_on_connected,
-		&srccpy::sc_server_on_disconnected};
+	static const struct sc_server_callbacks cbs = {&srccpy::sc_server_on_connection_failed,
+						       &srccpy::sc_server_on_connected,
+						       &srccpy::sc_server_on_disconnected};
 	struct sc_server_params *pm = (struct sc_server_params *)malloc(sizeof(struct sc_server_params));
 	memset(pm, 0, sizeof(pm));
 	pm->scid = scid;
@@ -130,44 +116,37 @@ int srccpy::srccpy_init(const scrcpy_options &options)
 	pm->vd_destroy_content = true;
 	pm->list = 0;
 
-	if (!server.server_init(pm, &cbs, this))
-	{
+	if (!server.server_init(pm, &cbs, this)) {
 		return SCRCPY_EXIT_FAILURE;
 	}
-	if (!server.server_start())
-	{
+	if (!server.server_start()) {
 		// goto end;
 	}
 
 	bool connected = await_for_signal(server.m_connect_signal);
-	if (!connected)
-	{
+	if (!connected) {
 		// LOGE("Server connection failed");
 		// goto end;
 	}
 
 	// 启动线程，捕获 shared_ptr 保持 io_context 存活
 
-	if (options.video)
-	{
+	if (options.video) {
 		std::shared_ptr<sc_demuxer_callbacks> video_demuxer_cbs = std::make_shared<sc_demuxer_callbacks>();
 
 		video_demuxer_cbs->on_ended = sc_video_demuxer_on_ended;
-		this->video_demuxer.init("video", this->server.m_video_socket,
-								 video_demuxer_cbs, NULL);
+		this->video_demuxer.init("video", this->server.m_video_socket, video_demuxer_cbs, NULL);
 
 		// 添加文件保存 sink（H.264 格式）
 		auto file_sink = std::make_shared<sc_file_packet_sink>("video_stream", AV_CODEC_ID_H264);
 		this->video_demuxer.packet_source.add_sink(file_sink);
 	}
 
-	if (options.audio)
-	{
+	if (options.audio) {
 		std::shared_ptr<sc_demuxer_callbacks> audio_demuxer_cbs = std::make_shared<sc_demuxer_callbacks>();
 		audio_demuxer_cbs->on_ended = sc_audio_demuxer_on_ended;
 
-		this->audio_demuxer.init("audio", this->server.m_audio_socket,
-								 audio_demuxer_cbs, (void *)&options);
+		this->audio_demuxer.init("audio", this->server.m_audio_socket, audio_demuxer_cbs, (void *)&options);
 
 		// 添加文件保存 sink（Opus 格式）
 		auto file_sink = std::make_shared<sc_file_packet_sink>("audio_stream", AV_CODEC_ID_OPUS);
@@ -177,19 +156,15 @@ int srccpy::srccpy_init(const scrcpy_options &options)
 	///**************************************解码逻辑待编写
 	//**********************************************************************/
 
-	if (options.video)
-	{
-		if (!this->video_demuxer.start())
-		{
+	if (options.video) {
+		if (!this->video_demuxer.start()) {
 			// goto end;
 		}
 		video_demuxer_started = true;
 	}
 
-	if (options.audio)
-	{
-		if (!this->audio_demuxer.start())
-		{
+	if (options.audio) {
+		if (!this->audio_demuxer.start()) {
 			// goto end;
 		}
 		audio_demuxer_started = true;

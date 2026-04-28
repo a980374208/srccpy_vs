@@ -5,11 +5,11 @@
 
 // 日志级别
 typedef enum {
-    LOG_LEVEL_VERBOSE = 0,
-    LOG_LEVEL_DEBUG = 1,
-    LOG_LEVEL_INFO = 2,
-    LOG_LEVEL_WARN = 3,
-    LOG_LEVEL_ERROR = 4
+	LOG_LEVEL_VERBOSE = 0,
+	LOG_LEVEL_DEBUG = 1,
+	LOG_LEVEL_INFO = 2,
+	LOG_LEVEL_WARN = 3,
+	LOG_LEVEL_ERROR = 4
 } LogLevel;
 
 // 日志函数
@@ -23,10 +23,10 @@ void log_message(LogLevel level, const char *tag, const char *format, ...);
 
 // 设备信息结构
 typedef struct {
-    char *serial;
-    char *device_name;
-    int width;
-    int height;
+	char *serial;
+	char *device_name;
+	int width;
+	int height;
 } DeviceInfo;
 
 #endif // SCRCPY_COMMON_H

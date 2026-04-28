@@ -3,6 +3,5 @@
 #include "asio.hpp"
 
 struct ServerConnectSignal {
-    std::promise<bool> promise;
+	std::promise<bool> promise;
 };
-

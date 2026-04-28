@@ -2,117 +2,106 @@
 #include <assert.h>
 #include "net.h"
 
-
-sc_intr::sc_intr():
-    socket(SC_SOCKET_NONE),
-	process(SC_PROCESS_NONE),
-    interrupted(false)
-{
-}
+sc_intr::sc_intr() : socket(SC_SOCKET_NONE), process(SC_PROCESS_NONE), interrupted(false) {}
 
 bool sc_intr::set_socket(sc_socket socket)
 {
-    assert(this->process == SC_PROCESS_NONE);
+	assert(this->process == SC_PROCESS_NONE);
 
-    std::lock_guard<sc_mutex> lock(this->mutex);
-    bool interrupted =
-        atomic_load_explicit(&this->interrupted, std::memory_order_relaxed);
-    if (!interrupted) {
-        this->socket = socket;
-    }
+	std::lock_guard<sc_mutex> lock(this->mutex);
+	bool interrupted = atomic_load_explicit(&this->interrupted, std::memory_order_relaxed);
+	if (!interrupted) {
+		this->socket = socket;
+	}
 
-    return !interrupted;
+	return !interrupted;
 }
 
 void sc_intr::intr_interrupt()
 {
-    std::lock_guard<sc_mutex> lock(this->mutex);
+	std::lock_guard<sc_mutex> lock(this->mutex);
 
-    atomic_store_explicit(&this->interrupted, true, std::memory_order_relaxed);
+	atomic_store_explicit(&this->interrupted, true, std::memory_order_relaxed);
 
-    // No more than one component to interrupt
-    assert(this->socket == SC_SOCKET_NONE ||
-        this->process == SC_PROCESS_NONE);
+	// No more than one component to interrupt
+	assert(this->socket == SC_SOCKET_NONE || this->process == SC_PROCESS_NONE);
 
-    if (this->socket != SC_SOCKET_NONE) {
-        //LOGD("Interrupting socket");
-        net_interrupt(this->socket);
-        this->socket = SC_SOCKET_NONE;
-    }
-    if (this->process != SC_PROCESS_NONE) {
-        //LOGD("Interrupting process");
-        sc_process_terminate(this->process);
-        this->process = SC_PROCESS_NONE;
-    }
+	if (this->socket != SC_SOCKET_NONE) {
+		//LOGD("Interrupting socket");
+		net_interrupt(this->socket);
+		this->socket = SC_SOCKET_NONE;
+	}
+	if (this->process != SC_PROCESS_NONE) {
+		//LOGD("Interrupting process");
+		sc_process_terminate(this->process);
+		this->process = SC_PROCESS_NONE;
+	}
 }
 
 bool sc_intr::is_interrupted()
 {
-    return atomic_load_explicit(&this->interrupted, std::memory_order_relaxed);
+	return atomic_load_explicit(&this->interrupted, std::memory_order_relaxed);
 }
 
 bool sc_intr::net_listen_intr(sc_socket server_socket, uint32_t addr, uint16_t port, int backlog)
 {
-    if (!this->set_socket(server_socket)) {
-        // Already interrupted
-        return false;
-    }
+	if (!this->set_socket(server_socket)) {
+		// Already interrupted
+		return false;
+	}
 
-    bool ret = net_listen(server_socket, addr, port, backlog);
+	bool ret = net_listen(server_socket, addr, port, backlog);
 
 	this->set_socket(SC_SOCKET_NONE);
-    return ret;
+	return ret;
 }
 
 bool sc_intr::net_connect_intr(sc_socket socket, uint32_t addr, uint16_t port)
 {
-    if (!this->set_socket(socket)) {
-        // Already interrupted
-        return false;
-    }
+	if (!this->set_socket(socket)) {
+		// Already interrupted
+		return false;
+	}
 
-    bool ret = net_connect(socket, addr, port);
+	bool ret = net_connect(socket, addr, port);
 
-    this->set_socket(SC_SOCKET_NONE);
-    return ret;
+	this->set_socket(SC_SOCKET_NONE);
+	return ret;
 }
 
 sc_socket sc_intr::net_accept_intr(sc_socket server_socket)
 {
-    if (!this->set_socket(server_socket)) {
-        // Already interrupted
-        return SC_SOCKET_NONE;
-    }
+	if (!this->set_socket(server_socket)) {
+		// Already interrupted
+		return SC_SOCKET_NONE;
+	}
 
-    sc_socket socket = net_accept(server_socket);
+	sc_socket socket = net_accept(server_socket);
 	this->set_socket(SC_SOCKET_NONE);
-    return socket;
+	return socket;
 }
 
-ssize_t sc_intr::net_recv_intr(sc_socket socket, void* buf, size_t len)
+ssize_t sc_intr::net_recv_intr(sc_socket socket, void *buf, size_t len)
 {
-    if (!this->set_socket(socket)) {
-        // Already interrupted
-        return -1;
-    }
+	if (!this->set_socket(socket)) {
+		// Already interrupted
+		return -1;
+	}
 
-    ssize_t r = net_recv(socket, buf, len);
+	ssize_t r = net_recv(socket, buf, len);
 
-    this->set_socket(SC_SOCKET_NONE);
-    return r;
+	this->set_socket(SC_SOCKET_NONE);
+	return r;
 }
 
 bool sc_intr::set_process(sc_pid pid)
 {
-    assert(this->socket == SC_SOCKET_NONE);
+	assert(this->socket == SC_SOCKET_NONE);
 
-    std::lock_guard<sc_mutex> lock(this->mutex);
-    bool interrupted =
-        atomic_load_explicit(&this->interrupted, std::memory_order_relaxed);
-    if (!interrupted) {
-        this->process = pid;
-    }
-    return !interrupted;
+	std::lock_guard<sc_mutex> lock(this->mutex);
+	bool interrupted = atomic_load_explicit(&this->interrupted, std::memory_order_relaxed);
+	if (!interrupted) {
+		this->process = pid;
+	}
+	return !interrupted;
 }
-
-
