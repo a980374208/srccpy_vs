@@ -1,0 +1,83 @@
+#!/bin/sh
+#
+# pre-push hook: verify C/C++ code is clang-formatted
+# - does NOT modify files
+# - blocks push if formatting differs
+# - checks only commits about to be pushed
+#
+
+# ----------------------------
+# 1. 检查 clang-format 是否存在
+# ----------------------------
+if ! command -v clang-format >/dev/null 2>&1; then
+    echo "[pre-push] Error: clang-format not found in PATH"
+    exit 1
+fi
+
+# 所有输出走 stderr
+exec 1>&2
+
+# ----------------------------
+# 2. 读取 git 传入的 push 信息
+# ----------------------------
+# 每一行格式：
+# <local_ref> <local_sha> <remote_ref> <remote_sha>
+while read local_ref local_sha remote_ref remote_sha; do
+    # 删除分支不检查
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # 新建分支（远端不存在）
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        range="$local_sha"
+    else
+        range="$remote_sha..$local_sha"
+    fi
+
+    # ----------------------------
+    # 3. 找到本次 push 涉及的 C/C++ 文件
+    # ----------------------------
+    FILES=$(git diff --name-only $range |
+            grep -E '\.(c|cpp|h|hpp)$' |
+            grep -Ev '^(third_party|external|build|out)/')
+
+    [ -z "$FILES" ] && continue
+
+    echo "[pre-push] Checking clang-format for:"
+    echo "$FILES" | sed 's/^/  - /'
+
+    # ----------------------------
+    # 4. clang-format 校验（不修改）
+    # ----------------------------
+    FAILED=0
+    for f in $FILES; do
+        [ -f "$f" ] || continue
+
+        if ! clang-format "$f" | diff -u "$f" - >/dev/null; then
+            echo
+            echo "[pre-push] ❌ clang-format mismatch: $f"
+            FAILED=1
+        fi
+    done
+
+    if [ $FAILED -ne 0 ]; then
+        cat <<EOF
+
+[pre-push] Push blocked ❌
+Some files are not clang-formatted.
+
+Fix with:
+  clang-format -i <file>
+  git add <file>
+  git commit --amend   (or new commit)
+
+Or (NOT recommended):
+  git push --no-verify
+
+EOF
+        exit 1
+    fi
+done
+
+exit 0

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 project(scrcpy_lite VERSION 1.0.0 LANGUAGES C CXX)
 
+# 启用 Visual Studio 文件夹结构
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 # 设置 C 和 C++ 标准
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

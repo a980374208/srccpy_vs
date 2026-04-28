@@ -1,54 +1,85 @@
-# 核心库 - 所有源文件（已统一为 C++）
+# 核心库 - 所有源文件和头文件（已统一为 C++）
+# 按类型分开定义，便于使用 source_group(TREE ...) 自动分组
+
+# 源文件列表
 set(CORE_SOURCES
-    # 核心模块
     common.cpp
     net.cpp
     device.cpp
     controller.cpp
     str_util.cpp
-    
-    # 主框架
     server.cpp
     srccpy.cpp
-    
-    # ADB 相关
+    env.cpp
     adb/adb.cpp
     adb/adb_tunnel.cpp
     adb/adb_device.cpp
     adb/adb_parser.cpp
-    # 工具类
     util/rand.cpp
     util/sc_intr.cpp
     util/tick.cpp
     util/sc_file.cpp
     util/sc_log.cpp
     util/options.cpp
-
-    # 系统相关
-    env.cpp
     util/sc_thread.cpp
     util/sc_process.cpp
     util/process_intr.cpp
-    #事件
     asio/sc_event.cpp
-
-    #编解码
     codec/demuxer.cpp
     codec/packet_source.cpp
     codec/packet_sink.cpp
     codec/packet_merge.cpp
+)
 
-
+# 头文件列表
+set(CORE_HEADERS
+    common.h
+    net.h
+    device.h
+    controller.h
+    str_util.h
+    compat.h
+    server.hpp
+    srccpy.h
+    srccpy.hpp
+    env.h
+    adb/adb.h
+    adb/adb_tunnel.h
+    adb/adb_device.h
+    adb/adb_parser.h
+    util/rand.h
+    util/sc_intr.h
+    util/tick.h
+    util/sc_file.h
+    util/sc_log.h
+    util/options.h
+    util/sc_thread.h
+    util/sc_process.h
+    util/process_intr.h
+    asio/sc_event.h
+    codec/demuxer.h
+    codec/packet_source.h
+    codec/packet_sink.h
+    codec/packet_merge.h
 )
 
 # 创建静态库（使用 C++ 编译器以支持混合编译）
-add_library(scrcpy_core STATIC ${CORE_SOURCES})
+# 注意：必须同时包含源文件和头文件，Visual Studio 才能显示它们
+add_library(scrcpy_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
 target_compile_features(scrcpy_core PUBLIC cxx_std_17)
 target_compile_definitions(scrcpy_core PRIVATE ASIO_STANDALONE)
 
+# 设置 Visual Studio 文件夹结构 - 使用 TREE 自动按目录分组
+# 参考 OBS 项目的做法
+
+# 源文件分组
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" PREFIX "Source Files" FILES ${CORE_SOURCES})
+
+# 头文件分组
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" PREFIX "Header Files" FILES ${CORE_HEADERS})
+
 
 target_include_directories(scrcpy_core PUBLIC
-    ${CMAKE_SOURCE_DIR}/third_party/asio
     ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/include
 )
 
@@ -98,6 +129,10 @@ set(APP_SOURCES
 )
 
 add_executable(scrcpy_app ${APP_SOURCES})
+
+# 设置 Visual Studio 文件夹结构
+source_group("Main" FILES main.cpp)
+
 target_link_libraries(scrcpy_app PRIVATE scrcpy_core)
 
 # 设置可执行文件的语言为 CXX

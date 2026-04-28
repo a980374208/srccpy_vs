@@ -1,0 +1,77 @@
+#!/bin/sh
+#
+# pre-commit hook: auto clang-format for staged C/C++ files
+# - only formats staged files
+# - excludes third_party / external / build
+# - re-adds formatted files automatically
+# - blocks commit on errors
+#
+
+# ----------------------------
+# 1. 基础校验：是否有 clang-format
+# ----------------------------
+if ! command -v clang-format >/dev/null 2>&1; then
+    echo "[pre-commit] Error: clang-format not found in PATH"
+    echo "[pre-commit] Please install clang-format first"
+    exit 1
+fi
+
+# ----------------------------
+# 2. 判断 against（是否首次提交）
+# ----------------------------
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    against=HEAD
+else
+    against=$(git hash-object -t tree /dev/null)
+fi
+
+# 所有输出走 stderr（git hook 规范）
+exec 1>&2
+
+# ----------------------------
+# 3. 非 ASCII 文件名检查（可选，但推荐）
+# ----------------------------
+allownonascii=$(git config --type=bool hooks.allownonascii)
+
+if [ "$allownonascii" != "true" ] &&
+   test $(git diff --cached --name-only --diff-filter=A -z $against |
+        LC_ALL=C tr -d '[ -~]\0' | wc -c) != 0
+then
+    cat <<EOF
+Error: Attempt to add a non-ASCII file name.
+
+This can cause problems on cross-platform projects.
+You can disable this check via:
+
+  git config hooks.allownonascii true
+EOF
+    exit 1
+fi
+
+# ----------------------------
+# 4. 获取需要格式化的 staged 文件
+# ----------------------------
+FILES=$(git diff --cached --name-only --diff-filter=ACMR |
+        grep -E '\.(c|cpp|h|hpp)$' |
+        grep -Ev '^(third_party|external|build|out)/')
+
+if [ -z "$FILES" ]; then
+    exit 0
+fi
+
+echo "[pre-commit] clang-format staged files:"
+
+# ----------------------------
+# 5. 执行 clang-format 并重新 add
+# ----------------------------
+for f in $FILES; do
+    [ -f "$f" ] || continue
+    echo "  - $f"
+    clang-format -i "$f"
+    git add "$f"
+done
+
+# ----------------------------
+# 6. whitespace 兜底检查
+# ----------------------------
+git diff-index --check --cached $against --
