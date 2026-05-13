@@ -8,7 +8,7 @@
 #include "sc_intr.h"
 #include "adb_tunnel.h"
 #include "tick.h"
-#include "asio/sc_event.h"
+#include "event/sc_event.h"
 
 #define SC_DEVICE_NAME_FIELD_LENGTH 64
 

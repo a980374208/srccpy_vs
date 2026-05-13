@@ -1,6 +1,6 @@
 #pragma once
 #include "stdint.h"
-#include "server.hpp"
+#include "server/server.hpp"
 #include "codec/demuxer.h"
 #include <memory>
 
@@ -30,6 +30,9 @@ public:
 
 private:
 	uint32_t generate_scid();
+
+	bool video_demuxer_started = false;
+	bool audio_demuxer_started = false;
 
 public:
 	sc_server server;

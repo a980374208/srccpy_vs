@@ -8,9 +8,10 @@ set(CORE_SOURCES
     device.cpp
     controller.cpp
     str_util.cpp
-    server.cpp
     srccpy.cpp
     env.cpp
+    server/server.cpp
+    server/sc_server_cmd_builder.cpp
     adb/adb.cpp
     adb/adb_tunnel.cpp
     adb/adb_device.cpp
@@ -24,7 +25,7 @@ set(CORE_SOURCES
     util/sc_thread.cpp
     util/sc_process.cpp
     util/process_intr.cpp
-    asio/sc_event.cpp
+    event/sc_event.cpp
     codec/demuxer.cpp
     codec/packet_source.cpp
     codec/packet_sink.cpp
@@ -39,10 +40,11 @@ set(CORE_HEADERS
     controller.h
     str_util.h
     compat.h
-    server.hpp
     srccpy.h
     srccpy.hpp
     env.h
+    server/server.hpp
+    server/sc_server_cmd_builder.hpp
     adb/adb.h
     adb/adb_tunnel.h
     adb/adb_device.h
@@ -56,7 +58,7 @@ set(CORE_HEADERS
     util/sc_thread.h
     util/sc_process.h
     util/process_intr.h
-    asio/sc_event.h
+    event/sc_event.h
     codec/demuxer.h
     codec/packet_source.h
     codec/packet_sink.h
@@ -67,7 +69,7 @@ set(CORE_HEADERS
 # 注意：必须同时包含源文件和头文件，Visual Studio 才能显示它们
 add_library(scrcpy_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
 target_compile_features(scrcpy_core PUBLIC cxx_std_17)
-target_compile_definitions(scrcpy_core PRIVATE ASIO_STANDALONE)
+#target_compile_definitions(scrcpy_core PRIVATE ASIO_STANDALONE)
 
 # 设置 Visual Studio 文件夹结构 - 使用 TREE 自动按目录分组
 # 参考 OBS 项目的做法
@@ -91,7 +93,7 @@ if(WIN32)
     )
 else()
     find_package(Threads REQUIRED)
-    target_link_libraries(scrcpy_core PRIVATE Threads::Threads)  #for asio
+    #target_link_libraries(scrcpy_core PRIVATE Threads::Threads)  #for asio
 endif()
 
 # 设置库的语言为 CXX，以便链接 C++ 标准库
@@ -119,7 +121,7 @@ else()
         avutil
         swscale
         swresample
-        pthread  # for asio
+        #pthread  # for asio
     )
 endif()
 
@@ -148,6 +150,27 @@ if(WIN32)
         ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/swscale.lib
         ${CMAKE_SOURCE_DIR}/third_party/ffmpeg/lib/swresample.lib
     )
+
+    # 编译完成后自动复制 DLL 到可执行文件目录
+    file(GLOB FFMPEG_DLLS
+        "${CMAKE_SOURCE_DIR}/third_party/ffmpeg/bin/*.dll"
+    )
+
+    foreach(DLL ${FFMPEG_DLLS})
+        add_custom_command(TARGET scrcpy_app POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DLL}"
+                "$<TARGET_FILE_DIR:scrcpy_app>"
+        )
+    endforeach()
+
+    # server directory
+    add_custom_command(TARGET scrcpy_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/server"
+            "$<TARGET_FILE_DIR:scrcpy_app>/server"
+    )
+
 else()
     # Linux/macOS 平台链接 FFmpeg
     target_link_libraries(scrcpy_app PRIVATE

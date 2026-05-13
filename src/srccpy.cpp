@@ -1,6 +1,6 @@
 ﻿#include "srccpy.hpp"
 #include "rand.h"
-#include "server.hpp"
+#include "server/server.hpp"
 #include "options.h"
 #include "codec/demuxer.h"
 #include "codec/packet_sink.h"
@@ -48,15 +48,21 @@ static void sc_audio_demuxer_on_ended(struct sc_demuxer *demuxer, enum sc_demuxe
 
 srccpy::srccpy() {}
 
-srccpy::~srccpy() {}
+srccpy::~srccpy()
+{
+	if (video_demuxer_started) {
+		this->video_demuxer.join();
+	}
+	if (audio_demuxer_started) {
+		this->audio_demuxer.join();
+	}
+}
 
 int srccpy::srccpy_init(const scrcpy_options &options)
 {
 	uint32_t scid = generate_scid();
 
 	enum scrcpy_exit_code ret = SCRCPY_EXIT_FAILURE;
-	bool video_demuxer_started = false;
-	bool audio_demuxer_started = false;
 
 	static const struct sc_server_callbacks cbs = {&srccpy::sc_server_on_connection_failed,
 						       &srccpy::sc_server_on_connected,
@@ -129,7 +135,7 @@ int srccpy::srccpy_init(const scrcpy_options &options)
 		// goto end;
 	}
 
-	// 启动线程，捕获 shared_ptr 保持 io_context 存活
+	// 创建音视频流接收及解复用线程并初始化
 
 	if (options.video) {
 		std::shared_ptr<sc_demuxer_callbacks> video_demuxer_cbs = std::make_shared<sc_demuxer_callbacks>();
@@ -156,6 +162,7 @@ int srccpy::srccpy_init(const scrcpy_options &options)
 	///**************************************解码逻辑待编写
 	//**********************************************************************/
 
+	//启动音视频流接收及解复用
 	if (options.video) {
 		if (!this->video_demuxer.start()) {
 			// goto end;
